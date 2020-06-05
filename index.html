@@ -1,0 +1,664 @@
+<html>
+ <head>
+	<title>DIVR+ SIFY-</title>
+	<link href="https://fonts.googleapis.com/css?family=Tenali+Ramakrishna" rel="stylesheet">
+	<style type="text/css">
+		html, body { background-color: #FFFFFF; margin:0px; padding:0px;font-family: 'Tenali Ramakrishna', sans-serif; }
+		body { background-image:url(background.png);background-position:-43px 9px; }
+		table { border-collapse:collapse;  }
+		.boardLeftMargin { width:58px;height:25px; }
+		.board { margin:10px 0px; padding:0px; border-collapse:collapse; background-color:#999999;border:1px dashed rgba(255, 51, 51, 0.5);background-image:url(streets.gif);background-position:0px 0px;float:right; }
+		.board td { padding:0px;margin:0px; }
+		.board td a { display: none; width:100%;height:100%; }
+		.board td a .building { display: none; }
+		.board td a:hover .building { display: block; opacity:0.85; }
+		.region1,.region2,.region3,.region4,.region5 { background-color:#FFFFFF; margin:10px 11px 11px 10px; height:30px; width:30px; text-align:justify;position:relative; }
+		.region1 { background-color:#b6c4cd; }
+		.region2 { background-color:#e6ebee; }
+		.region3 { background-color:#e6ebee; }
+		.region4 { background-color:#b6c4cd; }		
+		.region5 { background-color:#f2f0ca; }
+		.game { position:absolute; top:0px;left:0px; }
+		.track { font-size:9pt; background:rgba(225, 225, 225, 0.5);height:612px; }
+		.building
+		{
+			position:absolute;top:-36px;left:-6px;pointer-events:none;border:none; 
+		}
+		.stockIndexCell { width:30px;height:28px;margin:2px 5px;position:relative;color:#FFFFFF; }
+		.stats { width:230px;height:612px;background:rgba(225, 225, 225, 0.5);  }
+		.stats td { padding:5px; }
+		button { border:none; margin:1px; color:#FFFFFF;font-family: 'Tenali Ramakrishna', sans-serif; height:20px;cursor:pointer;outline:none; }
+		.stats button { width:30px; }
+	</style>
+ </head>
+ <body>
+<table class="game" cellpadding="0" cellspacing="0">
+	<tr><td></td><td align="center"><img src="divrsify.png" alt="DIVR+ SIFY-" /></td><td colspan="2"></td></tr>
+	<tr>
+		<td><div class="boardLeftMargin"></div></td>
+		<td><table id="board" class="board"></table></td>
+		<td width="330" align="left"><table id="track" class="track" width="330"></table></td>
+		<td width="280"><table id="stats" class="stats"></table></td>
+	</tr>
+ </table>
+ <button onclick="game.RollDice();" style="position:absolute;top:5px;left:5px;">Progress</button>
+ </body>
+<script language="javascript" type="text/javascript">
+
+//3 - Handle game order (i.e. Sell?, Roll, Purchase/Sell/Trade (up to 5?)) - need to revisit rules....
+//4 - Handle Player turns...
+//5 - Save game state, load game state
+	var $ = function(id) 
+	{
+		return document.getElementById(id);
+	}
+
+	var game = { };
+	game.Rows = 12;
+	game.Columns = 12;
+	game.Tiles = [ ];
+	game.Stocks = [ ];
+	game.Players = [ ];
+	game.Moves = [ ];
+	game.CurrentPlayer = -1;
+			
+	game.Initialize = function(moves,players)
+	{
+		var html = '';
+		for(var row=0;row<this.Rows;row++)
+		{
+			html+='<tr>';
+			this.Tiles[row] = [ ];
+			for(var col=0;col<this.Columns;col++)
+			{
+				var region = 0;
+				if (row>=3 && row<=8 && col>=3 && col<=8 && !(row==3 && col==3) && !(row==3 && col==8) && !(row==8 && col==3) && !(row==8 && col==8))
+				{
+					region = 5;
+				}
+				else if (row<6 && col<6)
+				{
+					region = 1;
+				}
+				else if (row>=6 && col<6)
+				{
+					region = 2;
+				}
+				else if (row<6 && col>=6)
+				{
+					region = 3;
+				}
+				else if (row>=6 && col>=6)
+				{
+					region = 4;
+				}
+				
+				html+='<td><div id="tile_'+row+'_'+col+'" region="region'+region+'" class="region'+region+'"><a id="tileHotSpot_'+row+'_'+col+'" href="javascript:void(0);"></a><div id="tileBuildingPlaceholder_'+row+'_'+col+'"></div></div></td>';
+				
+				
+				var tile = {};
+				tile.Region = region;
+				tile.Building = false;
+				tile.Row = row;
+				tile.Column = col;
+				this.Tiles[row][col] = tile;
+			}
+			html+='</tr>';
+		}
+		this.Board = $('board');
+		this.Board.innerHTML = html;
+		
+		this.Stocks[0] = { Name:'Wynn &amp; Sons LLC', Color:'#953413', BuildingImage:'redBuilding.png', HotSpotImage:'redHotSpot.png',TrackElements:[], CurrentIndex:0, NumBuildingsLeft:20 };
+		this.Stocks[1] = { Name:'Oasis Lmt.', Color:'#224466', BuildingImage:'blueBuilding.png', HotSpotImage:'blueHotSpot.png',TrackElements:[], CurrentIndex:0, NumBuildingsLeft:20 };
+		this.Stocks[2] = { Name:'SouthStar Inc.', Color:'#346E75', BuildingImage:'greenBuilding.png', HotSpotImage:'greenHotSpot.png',TrackElements:[], CurrentIndex:0, NumBuildingsLeft:20 };
+		this.Stocks[3] = { Name:'Tenali Co.', Color:'#B08D00', BuildingImage:'yellowBuilding.png', HotSpotImage:'yellowHotSpot.png', TrackElements:[], CurrentIndex:0, NumBuildingsLeft:20 };
+		
+		for(var i=0;i<players.length;i++)
+		{
+			for(var j=0;j<this.Stocks.length;j++)
+			{
+				players[i].Stocks[j] = 0;
+			}
+			if (players[i].IsActive)
+			{
+				 this.ActivePlayer = players[i];
+			}
+			this.Players.push(players[i]);
+		}		
+		this.NumPlayers = players.length;
+		
+		html = '';
+		for(var i=15;i>0;i--)
+		{
+			html += '<tr>';
+			html += '<td style="text-align:right;"></td>';
+			for(var j=0;j<this.Stocks.length;j++)
+			{
+			
+				html += '<td width="75"><center><div id="track_'+i+'_'+j+'" class="stockIndexCell" style="background-color:'+this.Stocks[j].Color+';p"></div></center></td>';
+				
+			}
+			html += '</tr>';
+		}
+		
+		html += '<tr>';
+		html += '<td></td>';
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			html += '<td width="75"><center><div id="track_0_'+i+'" class="stockIndexCell" style="background-color:'+this.Stocks[i].Color+';"><img src="'+this.Stocks[i].BuildingImage+'" alt="'+this.Stocks[i].Name+'" class="building" /></center></div></td>';
+		}
+		html += '</tr>';
+		
+		html += '<tr>';
+		html += '<td></td>';
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			html += '<td><center>'+this.Stocks[i].Name+'</center></td>';
+			this.Stocks[i].HTML = '<img src="'+this.Stocks[i].BuildingImage+'" alt="'+this.Stocks[i].Name+'" class="building" />';
+		}
+		html += '</tr>';
+		html += '<tr>';
+		html += '<td></td>';
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			html += '<td><center><div class="priceContainer" id="priceContainer_'+i+'">-</div></center></td>';
+		}
+		html += '</tr>';
+		html += '<tr>';
+		html += '<td></td>';
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			html += '<td><center><button id="buyBtn_'+i+'" style="background-color:'+this.Stocks[i].Color+';" onclick="game.Buy('+i+');">Buy</button><button id="sellBtn_'+i+'" style="background-color:'+this.Stocks[i].Color+';" onclick="game.Sell('+i+');">Sell</button></center></td>';
+		}
+		html += '</tr>';
+				
+		this.Track = $('track');
+		this.Track.innerHTML = html;
+		for(var i=0;i<=15;i++)
+		{
+			for(var j=0;j<this.Stocks.length;j++)
+			{
+				this.Stocks[j].TrackElements[i] = $('track_'+i+'_'+j);
+				if (this.Stocks[j].PriceContainer == undefined)
+				{
+					this.Stocks[j].PriceContainer = $('priceContainer_'+j);
+					this.Stocks[j].BuyBtn = $('buyBtn_'+j);
+					this.Stocks[j].SellBtn = $('sellBtn_'+j);
+					this.Stocks[j].PriceContainer = $('priceContainer_'+j);
+					this.Stocks[j].PricePerShare = 0;
+				}
+			}
+		}
+
+		this.Stats = $('stats');
+				
+		for(var row=0;row<this.Rows;row++)
+		{
+			for(var col=0;col<this.Columns;col++)
+			{
+				this.Tiles[row][col].Element = $('tile_'+row+'_'+col);
+				this.Tiles[row][col].HotSpot = $('tileHotSpot_'+row+'_'+col);
+				this.Tiles[row][col].Container = $('tileBuildingPlaceholder_'+row+'_'+col);
+				this.Tiles[row][col].StockIndex = -1;
+				this.Tiles[row][col].HasBuilding = false;
+			}
+		}
+		
+		for(var i=0;i<moves.length;i++)
+		{
+			this.AddBuilding(moves[i].Row, moves[i].Column, moves[i].StockIndex);
+			this.Moves.push(moves[i]);
+		}
+		this.CurrentPlayer = this.Players[this.Moves.length%this.NumPlayers];
+				
+		this.UpdateStockIndex();
+		this.UpdateStats();
+	}
+	
+	game.RollDice = function()
+	{
+		var rolledIndex = Math.floor((Math.random() * this.Stocks.length));
+		var rolledRegion = Math.floor((Math.random() * 5)+1);
+				
+		//iterate over each tile - if it's in a different region "clear" it out, remove any hotspots
+		//if it is the correct region, and the tile is empty, consider it possibility...(further investigation needed...see below)
+		for(var row=0;row<this.Rows;row++)
+		{
+			for(var col=0;col<this.Columns;col++)
+			{
+				if (this.Tiles[row][col].HasBuilding) { continue; }
+				
+				var isRegion = this.Tiles[row][col].Region==rolledRegion;
+				var isBuildableTile = isRegion; 
+				
+				if (isRegion) 
+				{
+					//if we're in the  region, we need to look at the current cell to make sure it's not adjacent to a building grouping (1 or more) that is a grouping of a larger number...
+					//rules:
+					//1. If the current empty square would be a single building, but it is adjacent to another single (or multiple) building grouping, it's not eligible
+					//2. If the current empty square would be a multiple grouping, but is also adjacent to another multple building grouping, it is only eligible if the grouping is or would be larger...
+					//(These are both essentially the same rule...)
+					//also (importantly) ... need to look at other regions too, because building groupings in other regions could impact us...
+						
+					var potentialGroupSize = this.GetTilePotentialBuildingSize(row, col, rolledIndex);
+					
+					if (//This is written in this way to avoid multiple unnecesary calls...(it just takes one to be true for the tile to not be buildable...
+						this.GetBuildingGroupSizeOfAboveTile(row, col, rolledIndex).length>=potentialGroupSize
+					||  this.GetBuildingGroupSizeOfBelowTile(row, col, rolledIndex).length>=potentialGroupSize
+					||  this.GetBuildingGroupSizeOfLeftTile(row, col, rolledIndex).length>=potentialGroupSize
+					||  this.GetBuildingGroupSizeOfRightTile(row, col, rolledIndex).length>=potentialGroupSize
+						)
+					{
+						isBuildableTile = false;
+					}
+				}
+				
+				this.Tiles[row][col].HotSpot.style.display = isBuildableTile? 'block' : 'none';
+				this.Tiles[row][col].HotSpot.href = 'javascript:game.AddBuilding('+row+', '+col+', '+rolledIndex+');';
+				this.Tiles[row][col].HotSpot.style.backgroundImage = isBuildableTile? 'url('+this.Stocks[rolledIndex].HotSpotImage+')' : 'none';
+				this.Tiles[row][col].HotSpot.innerHTML = isBuildableTile? this.Stocks[rolledIndex].HTML  : '';
+			}
+		}
+		
+		this.UpdateControls();
+	};
+	
+	game.GetTilePotentialBuildingSize = function(row, col, index)
+	{
+		//Need to only allow insertion to acceptable regions...
+		//to figure those out, get all the adjacent groupings for all building types...
+		var allGroups = this.GetAllBuildingGroups();
+		
+		//Calculate the potential group size, by assuming the current tile gets the building...
+		//then look above, below, left and right and see if there's an adjacent building group of the same type
+		//if there is, add the size of the grouping  it to the potential group size
+		//these are all individual IF statements because sometimes the new space will connect two existing groups...
+		var potentialGroupSize = 1;
+		if (row>0 && this.Tiles[row-1][col].HasBuilding && this.Tiles[row-1][col].StockIndex == index)
+		{
+			var buildingGroup = this.GetBuildingGrouping(this.Tiles[row-1][col], allGroups);
+			potentialGroupSize += buildingGroup.length;
+		}
+		if (row<this.Rows-1 && this.Tiles[row+1][col].HasBuilding && this.Tiles[row+1][col].StockIndex == index)
+		{
+			var buildingGroup = this.GetBuildingGrouping(this.Tiles[row+1][col], allGroups);
+			potentialGroupSize += buildingGroup.length;
+		}
+		if (col>0 && this.Tiles[row][col-1].HasBuilding && this.Tiles[row][col-1].StockIndex == index)
+		{
+			var buildingGroup = this.GetBuildingGrouping(this.Tiles[row][col-1], allGroups);
+			potentialGroupSize += buildingGroup.length;
+		}
+		if (col<this.Columns-1 && this.Tiles[row][col+1].HasBuilding && this.Tiles[row][col+1].StockIndex == index)
+		{
+			var buildingGroup = this.GetBuildingGrouping(this.Tiles[row][col+1], allGroups);
+			potentialGroupSize += buildingGroup.length;
+		}
+		return potentialGroupSize;
+	};
+	
+	game.GetBuildingGroupSizeOfAboveTile = function(row, col, index)
+	{
+		return this.GetBuildingGroupSizeOfAdjacentTiles(row, col, index, true, false, false, false).Above;
+	};
+	game.GetBuildingGroupSizeOfBelowTile = function(row, col, index)
+	{
+		return this.GetBuildingGroupSizeOfAdjacentTiles(row, col, index, false, true, false, false).Below;
+	};
+	game.GetBuildingGroupSizeOfLeftTile = function(row, col, index)
+	{
+		return this.GetBuildingGroupSizeOfAdjacentTiles(row, col, index, false, false, true, false).Left;
+	};
+	game.GetBuildingGroupSizeOfRightTile = function(row, col, index)
+	{
+		return this.GetBuildingGroupSizeOfAdjacentTiles(row, col, index, false, false, false, true).Right;
+	};
+	game.GetBuildingGroupSizeOfAllAdjacentTiles = function(row, col, index)
+	{
+		return this.GetBuildingGroupSizeOfAdjacentTiles(row, col, index, true, true, true, true);
+	};
+	game.GetBuildingGroupSizeOfAdjacentTiles = function(row, col, index, above, below, left, right)
+	{
+		//Need to only allow insertion to acceptable regions...
+		//to figure those out, get all the adjacent groupings for all building types...
+		var allGroups = this.GetAllBuildingGroups();
+		
+		var adjacency = { };
+		adjacency.Above = [];
+		adjacency.Below = [];
+		adjacency.Left = [];
+		adjacency.Right = [];
+		
+		//next check above, below, to the left and to the right...
+		//if any adjacent tile has a building of a different type,
+		//get the grouping... if the group is larger than the potential group size, we aren't allowed to place a building here...
+		//these are all individual IF statements because there may be multiple groupings adjacent to the given square
+		if (above && row>0 && this.Tiles[row-1][col].HasBuilding && this.Tiles[row-1][col].StockIndex != index)
+		{
+			var otherBuildingGroup = this.GetBuildingGrouping(this.Tiles[row-1][col], allGroups);
+			adjacency.Above = otherBuildingGroup;
+		}
+		if (below && row<this.Rows-1 && this.Tiles[row+1][col].HasBuilding && this.Tiles[row+1][col].StockIndex != index)
+		{
+			var otherBuildingGroup = this.GetBuildingGrouping(this.Tiles[row+1][col], allGroups);
+			adjacency.Below = otherBuildingGroup;
+		}
+		if (left && col>0 && this.Tiles[row][col-1].HasBuilding && this.Tiles[row][col-1].StockIndex != index)
+		{
+			var otherBuildingGroup = this.GetBuildingGrouping(this.Tiles[row][col-1], allGroups);
+			adjacency.Left = otherBuildingGroup;
+		}
+		if (right && col<this.Columns-1 && this.Tiles[row][col+1].HasBuilding && this.Tiles[row][col+1].StockIndex != index)
+		{
+			var otherBuildingGroup = this.GetBuildingGrouping(this.Tiles[row][col+1], allGroups);
+			adjacency.Right = otherBuildingGroup;
+		}
+		return adjacency;
+	};
+	
+	game.AddBuilding = function(row, col, stockIndex)
+	{
+		if (stockIndex==undefined || stockIndex<0) { return; }
+		else if (this.Stocks[stockIndex].NumBuildingsLeft==0) { return; }
+
+		//decrement num buildings left...
+		this.Stocks[stockIndex].NumBuildingsLeft--;
+		
+		var potentialGroupSize = this.GetTilePotentialBuildingSize(row, col, stockIndex);
+		var adjacentGroups = this.GetBuildingGroupSizeOfAllAdjacentTiles(row, col, stockIndex);
+				
+		//add building to board..
+		this.Tiles[row][col].HotSpot.style.display = 'none';
+		this.Tiles[row][col].Container.innerHTML = this.Stocks[stockIndex].HTML;
+		this.Tiles[row][col].StockIndex = stockIndex;
+		this.Tiles[row][col].HasBuilding = true;
+		
+		if (adjacentGroups.Above.length<potentialGroupSize)
+		{
+			this.DestroyBuildingGroup(adjacentGroups.Above);
+		}
+		if (adjacentGroups.Below.length<potentialGroupSize)
+		{
+			this.DestroyBuildingGroup(adjacentGroups.Below);
+		}
+		if (adjacentGroups.Left.length<potentialGroupSize)
+		{
+			this.DestroyBuildingGroup(adjacentGroups.Left);
+		}
+		if (adjacentGroups.Right.length<potentialGroupSize)
+		{
+			this.DestroyBuildingGroup(adjacentGroups.Right);
+		}
+		this.UpdateStockIndex();
+		
+		for(var row=0;row<this.Rows;row++)
+		{
+			for(var col=0;col<this.Columns;col++)
+			{
+				this.Tiles[row][col].HotSpot.style.display = "none";
+				this.Tiles[row][col].HotSpot.innerHTML = '';
+			}
+		}
+		
+		this.UpdateStats();
+		this.UpdateControls();
+	};
+	
+	game.DestroyBuildingGroup = function(group)
+	{
+		for(var i=0;i<group.length;i++)
+		{
+			group[i].Container.innerHTML = '';
+			group[i].StockIndex = -1;
+			group[i].HasBuilding = false;
+		}
+	};
+	
+	game.UpdateControls = function()
+	{
+		for(var stockIndex=0;stockIndex<this.Stocks.length;stockIndex++)
+		{
+			if ((this.Stocks[stockIndex].CurrentIndex>0 && this.ActivePlayer.Cash>0 && this.ActivePlayer.Cash>=this.Stocks[stockIndex].PricePerShare))
+			{
+				this.Stocks[stockIndex].BuyBtn.disabled = false;
+				this.Stocks[stockIndex].BuyBtn.style.backgroundColor = this.Stocks[stockIndex].Color;
+				this.Stocks[stockIndex].BuyBtn.style.cursor = "pointer";
+			} else {
+				this.Stocks[stockIndex].BuyBtn.disabled = true;
+				this.Stocks[stockIndex].BuyBtn.style.backgroundColor = "#666666";
+				this.Stocks[stockIndex].BuyBtn.style.cursor = "not-allowed";
+			}
+			
+			if (this.ActivePlayer.Stocks[stockIndex]>0)
+			{
+				this.Stocks[stockIndex].SellBtn.disabled = false;
+				this.Stocks[stockIndex].SellBtn.style.backgroundColor = this.Stocks[stockIndex].Color;
+				this.Stocks[stockIndex].SellBtn.style.cursor = "pointer"
+			} else {
+				this.Stocks[stockIndex].SellBtn.disabled = true;
+				this.Stocks[stockIndex].SellBtn.style.backgroundColor = "#666666";
+				this.Stocks[stockIndex].SellBtn.style.cursor = "not-allowed";
+			}
+		}
+	};
+	
+	game.UpdateStockIndex = function()
+	{
+		//calculate new index value based on rules:
+		//if any building on board: stock is at least one.
+		//add number of buildings that are in any adjacent groupings, where there are more than 1 building in the group
+		//max out groupings by 7
+		for(var stockIndex=0;stockIndex<this.Stocks.length;stockIndex++)
+		{
+			var allBuildingGroupings = this.GetAllAdjacentGroups(stockIndex);
+			
+			var currentIndex = 0;
+			for(var i=0;i<allBuildingGroupings.length;i++) //go over all adjacent groupings
+			{
+				if (allBuildingGroupings[i].length>1) //if there's some in the group, increase the index, but max out at 7 per grouping...
+				{
+					currentIndex += Math.min(7, allBuildingGroupings[i].length);
+				}
+			}
+			if (currentIndex==0 && allBuildingGroupings.length>0) //if the index is zero, this means all the groupings are isolated buildings, so index value is just 1.
+			{
+				currentIndex = 1;
+			}
+			this.Stocks[stockIndex].CurrentIndex = currentIndex;
+			
+			for(var i=0;i<=15;i++)
+			{
+				if (i==0)
+				{
+					this.Stocks[stockIndex].TrackElements[i].innerHTML = '';
+					this.Stocks[stockIndex].TrackElements[i].style.backgroundColor = i>this.Stocks[stockIndex].CurrentIndex? '#CCCCCC' : this.Stocks[stockIndex].Color;
+				} else {
+					this.Stocks[stockIndex].TrackElements[i].innerHTML = '<div style="padding-top:7px;">$'+game.FormatNumber(i*100)+'</div>';
+					this.Stocks[stockIndex].TrackElements[i].style.backgroundColor = i>this.Stocks[stockIndex].CurrentIndex? '#CCCCCC' : this.Stocks[stockIndex].Color;
+				}
+			}		
+			this.Stocks[stockIndex].TrackElements[this.Stocks[stockIndex].CurrentIndex].innerHTML = this.Stocks[stockIndex].HTML;
+			this.Stocks[stockIndex].PriceContainer.innerHTML = currentIndex==0? '-' : '$'+(currentIndex*100)+'/share';
+			this.Stocks[stockIndex].PricePerShare = (currentIndex*100);
+		}
+		this.UpdateControls();
+	};
+	
+	game.Buy = function(stockIndex)
+	{
+		if (this.Stocks[stockIndex].CurrentIndex>0 && this.ActivePlayer.Cash>0 && this.ActivePlayer.Cash>=this.Stocks[stockIndex].PricePerShare)
+		{
+			this.ActivePlayer.Stocks[stockIndex]++;
+			this.ActivePlayer.Cash -= this.Stocks[stockIndex].PricePerShare;
+		}
+		this.UpdateStats();
+		this.UpdateControls();
+	};
+	
+	game.Sell = function(stockIndex)
+	{
+		if (this.ActivePlayer.Stocks[stockIndex]>0)
+		{
+			this.ActivePlayer.Stocks[stockIndex]--;
+			this.ActivePlayer.Cash += this.Stocks[stockIndex].PricePerShare;
+		}
+		this.UpdateStats();
+		this.UpdateControls();
+	};
+	
+	game.UpdateStats = function()
+	{
+		this.ActivePlayer.NetWorth = this.ActivePlayer.Cash;
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			this.ActivePlayer.NetWorth += (this.ActivePlayer.Stocks[i] * this.Stocks[i].PricePerShare);
+		}
+		var html = '<tr><td align="right"><strong>Cash on Hand:<br/>Net Worth:</strong></td><td align="left">$'+this.FormatNumber(this.ActivePlayer.Cash)+'<br/>$'+this.FormatNumber(this.ActivePlayer.NetWorth)+'</td></tr>';
+		for(var i=0;i<this.Stocks.length;i++)
+		{
+			html += '<tr><td align="right" style="color:'+this.Stocks[i].Color+';"><strong>'+this.Stocks[i].Name+' Stock:</strong><br/><strong>'+this.Stocks[i].Name+' Stock Worth:</strong></td><td align="left">'+this.ActivePlayer.Stocks[i]+'<br/>$'+this.FormatNumber(this.ActivePlayer.Stocks[i] * this.Stocks[i].PricePerShare)+'</td></tr>';
+		}
+		this.Stats.innerHTML = html;
+	};
+	
+	game.FormatNumber = function(i)
+	{
+		return i.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+	};
+	
+	game.GetAllBuildingGroups = function()
+	{
+		var allGroups = [];
+		for(var stockIndex=0;stockIndex<this.Stocks.length;stockIndex++)
+		{
+			var stockGroupings = this.GetAllAdjacentGroups(stockIndex);
+			for (var i=0;i<stockGroupings.length;i++)
+			{
+				allGroups.push(stockGroupings[i]);
+			}
+		}
+		return allGroups;
+	};
+	
+	game.GetAllAdjacentGroups = function(stockIndex)
+	{
+		var allBuildingGroupings = [];
+		for(var row=0;row<this.Rows;row++)
+		{
+			for(var col=0;col<this.Columns;col++)
+			{
+				if (this.Tiles[row][col].StockIndex==stockIndex) //iterate over every tile and look for buildings of our current type...
+				{
+					var isTileAlreadyInAdjacentGrouping = false;
+					
+					for(var i=0;i<allBuildingGroupings.length;i++) //loop over all adjacent groups and make sure the current tile is not in an adjacent grouping...
+					{
+						if (this.IsInGroup(this.Tiles[row][col], allBuildingGroupings[i]))
+						{
+							isTileAlreadyInAdjacentGrouping = true;
+							break;
+						}
+					}
+					//for any tile matching our current type, that is not already in an adjacent grouping, get the adjacent group
+					if (!isTileAlreadyInAdjacentGrouping)
+					{
+						allBuildingGroupings.push(this.GetAdjacentBuildingsForTile(row,col))
+					}
+				}
+			}
+		}
+		return allBuildingGroupings;
+	};
+	
+	game.GetAdjacentBuildingsForTile = function(row, col, countedBuildings)
+	{
+		countedBuildings = countedBuildings==undefined? [] : countedBuildings;
+		if (this.IsInGroup(this.Tiles[row][col], countedBuildings)) { return []; }
+		countedBuildings.push(this.Tiles[row][col]);
+		
+		if (
+			(row==0 || this.Tiles[row-1][col].StockIndex != this.Tiles[row][col].StockIndex) //if top row, or above doesn't match
+		 && (row==this.Rows-1 || this.Tiles[row+1][col].StockIndex != this.Tiles[row][col].StockIndex) //or bottom row, or below doesn't match
+		 && (col==0 || this.Tiles[row][col-1].StockIndex != this.Tiles[row][col].StockIndex) //or left column, or left doesn't match
+		 && (col==this.Columns-1 || this.Tiles[row][col+1].StockIndex != this.Tiles[row][col].StockIndex) //or right column or right doesn't match
+		) // we have found an isolated building of 1... isolated buildings don't increase stock...
+		{
+			return [ this.Tiles[row][col] ];
+		}
+		else
+		{
+			if (row>0 && this.Tiles[row-1][col].StockIndex == this.Tiles[row][col].StockIndex)
+			{
+				this.GetAdjacentBuildingsForTile(row-1, col, countedBuildings);
+			}
+			
+			if (row<this.Rows-1 && this.Tiles[row+1][col].StockIndex == this.Tiles[row][col].StockIndex)
+			{
+				this.GetAdjacentBuildingsForTile(row+1, col, countedBuildings);
+			}			
+			
+			if (col>0 && this.Tiles[row][col-1].StockIndex == this.Tiles[row][col].StockIndex)
+			{
+				this.GetAdjacentBuildingsForTile(row, col-1, countedBuildings);
+			}
+			
+			if (col<this.Columns-1 && this.Tiles[row][col+1].StockIndex == this.Tiles[row][col].StockIndex)
+			{
+				this.GetAdjacentBuildingsForTile(row, col+1, countedBuildings);
+			}
+			
+			return countedBuildings;
+		}
+	};
+	
+	game.IsInGroup = function(building, countedBuildings)
+	{
+		for(var i=0;i<countedBuildings.length;i++)
+		{
+			if (countedBuildings[i]==building)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	
+	game.GetBuildingGrouping = function(building, countedBuildingGroups)
+	{
+		for(var i=0;i<countedBuildingGroups.length;i++)
+		{
+			for(var j=0;j<countedBuildingGroups.length;j++)
+			{
+				if (countedBuildingGroups[i][j]==building)
+				{
+					return countedBuildingGroups[i];
+				}
+			}
+		}
+		return [];
+	};
+	
+	var moves = [];
+	for(var x=0;x<6;x++) //game variable (the user viewing the game...)
+	{
+		var move = { };
+		move.Row = Math.floor((Math.random() * game.Rows));
+		move.Column = Math.floor((Math.random() * game.Columns));
+		move.StockIndex = Math.floor((Math.random() * 4));
+		moves.push(move);
+	}
+	var players = [];
+	for(var i=0;i<3;i++)
+	{
+		var player = { };
+		player.Id = i;
+		player.Name = '';
+		player.IsContextUser = true;
+		player.Stocks = [];
+		player.Cash = 1000;
+		player.IsActive = player.Id == 1;	
+		players.push(player);
+	}
+	game.Initialize(moves, players);
+</script>
+</html>
